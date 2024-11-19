@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from PIL import Image
 import numpy as np
 import io
@@ -7,52 +7,48 @@ app = Flask(__name__)
 
 @app.route('/square', methods=['GET'])
 def square_number():
-    # Get the number from the request arguments
     number = request.args.get('number', type=int)
     
     if number is None:
         return jsonify({"error": "No number provided"}), 400
     
-    # Calculate the square of the number
     square = number ** 2
-    
-    # Return the result as a JSON response
     return jsonify({"number": number, "square": square}), 200
 
 @app.route('/convert', methods=['POST'])
-def convert_image_to_binary_matrix():
+def convert_image():
     if 'image' not in request.files:
-        return jsonify({"error": "No image part"}), 400
-
+        return jsonify({"error": "No image file provided"}), 400
+    
     image_file = request.files['image']
+    image = Image.open(image_file).convert('L')  # Convert to grayscale
     
-    if image_file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-
-    try:
-        # Open image using PIL
-        image = Image.open(image_file).convert('L')  # Convert image to grayscale
-
-        # Resize image to 120x40
-        image = image.resize((120, 40))
-
-        # Convert the image to a binary matrix
-        threshold = 128  # Threshold for binarization
-        binary_matrix = []
-
-        for y in range(40):
-            row = []
-            for x in range(120):
-                pixel_value = image.getpixel((x, y))
-                # Convert to 1 if black (below threshold), otherwise 0 (white)
-                row.append(1 if pixel_value < threshold else 0)
-            binary_matrix.append(row)
-
-        # Return the binary matrix as a JSON response
-        return jsonify({"binary_matrix": binary_matrix}), 200
+    # Resize image to 120x40
+    image = image.resize((120, 40))
     
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # Convert the image to a binary matrix (1 for black, 0 for white)
+    binary_matrix = []
+    threshold = 128  # Grayscale threshold for binary conversion
+    
+    for y in range(40):
+        row = []
+        for x in range(120):
+            pixel_value = image.getpixel((x, y))
+            row.append(1 if pixel_value < threshold else 0)
+        binary_matrix.append(row)
+    
+    # Convert the binary matrix back to an image
+    binary_image = Image.new('L', (120, 40))
+    for y in range(40):
+        for x in range(120):
+            binary_image.putpixel((x, y), 0 if binary_matrix[y][x] == 1 else 255)
+    
+    # Save the binary image to a BytesIO object
+    img_io = io.BytesIO()
+    binary_image.save(img_io, 'PNG')
+    img_io.seek(0)  # Rewind the BytesIO object to the beginning
+    
+    return send_file(img_io, mimetype='image/png', as_attachment=True, download_name='converted_image.png')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5454)
