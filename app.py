@@ -37,6 +37,13 @@ def convert_image():
             row.append(1 if pixel_value < threshold else 0)
         binary_matrix.append(row)
     
+    # Remove the horizontal line at line 23 without affecting text
+    for x in range(120):
+        # Only remove the line pixel if the surrounding pixels do not indicate part of a character
+        if binary_matrix[23][x] == 1:
+            if binary_matrix[22][x] == 0 and binary_matrix[24][x] == 0:
+                binary_matrix[23][x] = 0  # Remove the line pixel
+    
     # Convert the binary matrix back to an image
     binary_image = Image.new('L', (120, 40))
     for y in range(40):
@@ -48,7 +55,7 @@ def convert_image():
     binary_image.save(img_io, 'PNG')
     img_io.seek(0)  # Rewind the BytesIO object to the beginning
     
-    return send_file(img_io, mimetype='image/png', as_attachment=True, download_name='converted_image.png')
+    return send_file(img_io, mimetype='image/png', as_attachment=True, download_name='cleaned_image.png')
 
 if __name__ == '__main__':
     app.run(debug=True, port=5454)
