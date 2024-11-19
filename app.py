@@ -2,80 +2,57 @@ from flask import Flask, request, jsonify, send_file
 from PIL import Image
 import numpy as np
 import io
+import re
 import easyocr
 
 app = Flask(__name__)
+reader = easyocr.Reader(['en'], gpu=False)
 
-reader = easyocr.Reader(['en'])  # Initialize EasyOCR reader for English characters
-
-@app.route('/square', methods=['GET'])
-def square_number():
-    number = request.args.get('number', type=int)
-    
-    if number is None:
-        return jsonify({"error": "No number provided"}), 400
-    
-    square = number ** 2
-    return jsonify({"number": number, "square": square}), 200
-
-@app.route('/convert', methods=['POST'])
-def convert_image():
+# Route to convert the image to a binary matrix, clean it, and extract text
+@app.route('/process_image', methods=['POST'])
+def process_image():
     if 'image' not in request.files:
-        return jsonify({"error": "No image file provided"}), 400
+        return jsonify({"error": "No image provided"}), 400
     
     image_file = request.files['image']
-    image = Image.open(image_file).convert('L')  # Convert to grayscale
+    image = Image.open(image_file).convert('L')
     
-    # Resize image to 120x40
+    # Resize the image to 120x40
     image = image.resize((120, 40))
     
-    # Convert the image to a binary matrix (1 for black, 0 for white)
-    binary_matrix = []
-    threshold = 128  # Grayscale threshold for binary conversion
+    # Convert the image to a binary matrix
+    threshold = 128
+    binary_matrix = np.array([[1 if image.getpixel((x, y)) < threshold else 0 for x in range(120)] for y in range(40)])
     
-    for y in range(40):
-        row = []
-        for x in range(120):
-            pixel_value = image.getpixel((x, y))
-            row.append(1 if pixel_value < threshold else 0)
-        binary_matrix.append(row)
-    
-    # Remove the horizontal line at line 23 without affecting text
+    # Remove the horizontal line at row 23 without affecting text
     for x in range(120):
-        if binary_matrix[23][x] == 1:
-            if binary_matrix[22][x] == 0 and binary_matrix[24][x] == 0:
-                binary_matrix[23][x] = 0  # Remove the line pixel
+        if binary_matrix[23, x] == 1 and binary_matrix[22, x] == 0 and binary_matrix[24, x] == 0:
+            binary_matrix[23, x] = 0
     
     # Remove the border of the image
-    for x in range(120):
-        binary_matrix[0][x] = 0  # Top border
-        binary_matrix[39][x] = 0  # Bottom border
-
-    for y in range(40):
-        binary_matrix[y][0] = 0  # Left border
-        binary_matrix[y][119] = 0  # Right border
+    binary_matrix = binary_matrix[1:-1, 1:-1]
     
-    # Convert the binary matrix back to an image
-    binary_image = Image.new('L', (120, 40))
-    for y in range(40):
-        for x in range(120):
-            binary_image.putpixel((x, y), 0 if binary_matrix[y][x] == 1 else 255)
+    # Convert the cleaned binary matrix back to an image
+    cleaned_image = Image.fromarray((binary_matrix * 255).astype('uint8'))
     
-    # Use EasyOCR to extract text
-    extracted_text = reader.readtext(np.array(binary_image), detail=0, allowlist='0123456789abcdef')
+    # Extract text using EasyOCR
+    extracted_text = reader.readtext(np.array(cleaned_image), detail=0)
     
-    if not extracted_text:
-        return jsonify({"error": "Failed to extract text"}), 400
+    # Ensure text contains only a-f and 0-9, is 4-6 characters long, and has no spaces
+    if extracted_text:
+        extracted_text = re.sub(r'[^a-f0-9]', '', extracted_text[0].lower())
+        if len(extracted_text) < 4 or len(extracted_text) > 6:
+            extracted_text = "invalid"
+    else:
+        extracted_text = "invalid"
     
-    # Get the first text prediction and sanitize it
-    text = extracted_text[0].replace(" ", "")[:6]  # Ensure no spaces, and limit to 6 characters
+    # Save the cleaned image with the extracted text as the filename
+    filename = f"{extracted_text}.png"
+    image_io = io.BytesIO()
+    cleaned_image.save(image_io, format='PNG')
+    image_io.seek(0)
     
-    # Save the binary image to a BytesIO object with the extracted text as the filename
-    img_io = io.BytesIO()
-    binary_image.save(img_io, 'PNG')
-    img_io.seek(0)
-    
-    return send_file(img_io, mimetype='image/png', as_attachment=True, download_name=f'{text}.png')
+    return send_file(image_io, mimetype='image/png', as_attachment=True, download_name=filename)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5454)
+    app.run(debug=True)
