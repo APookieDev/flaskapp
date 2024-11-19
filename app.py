@@ -39,10 +39,20 @@ def convert_image():
     
     # Remove the horizontal line at line 23 without affecting text
     for x in range(120):
-        # Only remove the line pixel if the surrounding pixels do not indicate part of a character
         if binary_matrix[23][x] == 1:
             if binary_matrix[22][x] == 0 and binary_matrix[24][x] == 0:
                 binary_matrix[23][x] = 0  # Remove the line pixel
+    
+    # Remove the border of the image
+    # Top and bottom borders
+    for x in range(120):
+        binary_matrix[0][x] = 0  # Top border
+        binary_matrix[39][x] = 0  # Bottom border
+
+    # Left and right borders
+    for y in range(40):
+        binary_matrix[y][0] = 0  # Left border
+        binary_matrix[y][119] = 0  # Right border
     
     # Convert the binary matrix back to an image
     binary_image = Image.new('L', (120, 40))
