@@ -2,8 +2,11 @@ from flask import Flask, request, jsonify, send_file
 from PIL import Image
 import numpy as np
 import io
+import easyocr
 
 app = Flask(__name__)
+
+reader = easyocr.Reader(['en'])  # Initialize EasyOCR reader for English characters
 
 @app.route('/square', methods=['GET'])
 def square_number():
@@ -44,12 +47,10 @@ def convert_image():
                 binary_matrix[23][x] = 0  # Remove the line pixel
     
     # Remove the border of the image
-    # Top and bottom borders
     for x in range(120):
         binary_matrix[0][x] = 0  # Top border
         binary_matrix[39][x] = 0  # Bottom border
 
-    # Left and right borders
     for y in range(40):
         binary_matrix[y][0] = 0  # Left border
         binary_matrix[y][119] = 0  # Right border
@@ -60,12 +61,21 @@ def convert_image():
         for x in range(120):
             binary_image.putpixel((x, y), 0 if binary_matrix[y][x] == 1 else 255)
     
-    # Save the binary image to a BytesIO object
+    # Use EasyOCR to extract text
+    extracted_text = reader.readtext(np.array(binary_image), detail=0, allowlist='0123456789abcdef')
+    
+    if not extracted_text:
+        return jsonify({"error": "Failed to extract text"}), 400
+    
+    # Get the first text prediction and sanitize it
+    text = extracted_text[0].replace(" ", "")[:6]  # Ensure no spaces, and limit to 6 characters
+    
+    # Save the binary image to a BytesIO object with the extracted text as the filename
     img_io = io.BytesIO()
     binary_image.save(img_io, 'PNG')
-    img_io.seek(0)  # Rewind the BytesIO object to the beginning
+    img_io.seek(0)
     
-    return send_file(img_io, mimetype='image/png', as_attachment=True, download_name='cleaned_image.png')
+    return send_file(img_io, mimetype='image/png', as_attachment=True, download_name=f'{text}.png')
 
 if __name__ == '__main__':
     app.run(debug=True, port=5454)
